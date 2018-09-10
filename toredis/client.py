@@ -186,10 +186,11 @@ class Client(RedisCommandsMixin):
     def _connect(self, sock, addr, callback):
         self._reset()
 
-        self._stream = IOStream(sock, io_loop=self._io_loop)
+        self._stream = IOStream(sock)
 
         def _stream_connect_callback():
-            callback()
+            if callback:
+                callback()
 
             self._stream.read_until_close(self._on_close, self._on_read)
 
@@ -202,6 +203,8 @@ class Client(RedisCommandsMixin):
         resp = self.reader.gets()
 
         while resp is not False:
+            if isinstance(resp, bytes):
+                resp = resp.decode("utf-8")
             if self._sub_callback:
                 try:
                     self._sub_callback(resp)
