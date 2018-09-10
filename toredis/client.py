@@ -8,6 +8,7 @@ import hiredis
 from tornado.iostream import IOStream
 from tornado.ioloop import IOLoop
 from tornado import stack_context
+from tornado.ioloop import PeriodicCallback
 
 from toredis.commands import RedisCommandsMixin
 from toredis.pipeline import Pipeline
@@ -269,3 +270,50 @@ class Client(RedisCommandsMixin):
 
     def pipeline(self):
         return Pipeline(self)
+
+
+class ReconnectClient(Client):
+    def __init__(self, host="localhost", port=6379, password="", connect_callback=None):
+        super(ReconnectClient, self).__init__(self)
+
+        self.host = host
+        self.port = port
+        self.password = password
+        self.connect_callback = connect_callback
+        self.has_connected = False
+
+        self.timer = PeriodicCallback(self.reconnect, 1000)
+        self.reconnect()
+        self.timer.start()
+
+    def on_disconnect(self):
+        logging.warning("Redis is disconnect")
+        self.has_connected = False
+        self.timer.start()
+
+    def reconnect(self):
+        if not self.has_connected:
+            logging.warning("Redis is disconnect, reconnecting...")
+            try:
+                self.connect(self.host, self.port, self.redis_connected)
+            except Exception as e:
+                logging.exception("Redis connect error:")
+        else:
+            self.timer.stop()
+
+    def redis_connected(self):
+        logging.info('Redis has connected: %s' % self)
+        self.has_connected = True
+        if self.password:
+            try:
+                self.auth(self.password, self.after_auth)
+            except Exception as e:
+                logging.exception("Redis auth error....")
+
+        elif self.connect_callback:
+            self.connect_callback()
+
+    def after_auth(self, status):
+        logging.info('Redis Authentication status: %s' % (status,))
+        if status == "OK" and self.connect_callback:
+            self.connect_callback()
